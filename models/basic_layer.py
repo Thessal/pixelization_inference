@@ -169,10 +169,12 @@ class MLP(nn.Module):
     # def forward(self, style0, style1, a=0):
     #     return self.model[3]((1 - a) * self.model[0:3](style0.view(style0.size(0), -1)) + a * self.model[0:3](
     #         style1.view(style1.size(0), -1)))
-    def forward(self, style0, style1=None, a=0):
-        style1 = style0
-        return self.model[3]((1 - a) * self.model[0:3](style0.view(style0.size(0), -1)) + a * self.model[0:3](
-            style1.view(style1.size(0), -1)))
+    #def forward(self, style0, style1=None, a=0):
+    #    style1 = style0
+    #    return self.model[3]((1 - a) * self.model[0:3](style0.view(style0.size(0), -1)) + a * self.model[0:3](
+    #        style1.view(style1.size(0), -1)))
+    def forward(self, style0):
+        return self.model[3](self.model[0:3](style0.view(style0.size(0), -1)))
 ##################################################################################
 # Basic Blocks
 ##################################################################################
@@ -356,6 +358,8 @@ class LayerNorm(nn.Module):
         else:
             mean = x.view(x.size(0), -1).mean(1).view(*shape)
             std = x.view(x.size(0), -1).std(1).view(*shape)
+        #mean = x.view(x.size(0), -1).mean(1).view(*shape)
+        #std = x.view(x.size(0), -1).std(1).view(*shape)
 
         x = (x - mean) / (std + self.eps)
 

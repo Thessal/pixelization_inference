@@ -21,12 +21,14 @@ class Model():
 
             G_A_state = torch.load("160_net_G_A.pth", map_location=str(self.device))
             for p in list(G_A_state.keys()):
-                G_A_state["module."+str(p)] = G_A_state.pop(p)
+                #G_A_state["module."+str(p)] = G_A_state.pop(p)
+                G_A_state[str(p)] = G_A_state.pop(p)
             self.G_A_net.load_state_dict(G_A_state)
 
             alias_state = torch.load("alias_net.pth", map_location=str(self.device))
             for p in list(alias_state.keys()):
-                alias_state["module."+str(p)] = alias_state.pop(p)
+                #alias_state["module."+str(p)] = alias_state.pop(p)
+                alias_state[str(p)] = alias_state.pop(p)
             self.alias_net.load_state_dict(alias_state)
 
             ref_img = Image.open("reference.png").convert('L')
