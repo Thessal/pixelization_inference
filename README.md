@@ -16,5 +16,13 @@ cd pixelize-rust
 cargo run [your-image-file]
 ```
 
+## Windows build
+Download pixelize-rust.zip from above.
+or download from [ipfs](https://cloudflare-ipfs.com/ipfs/QmXYtF75yWRKXXy6jibDTvT8QXnEtPpqd6y9KXmyF9wuhM?__cf_chl_tk=iPJZMXZgU51bp7POumrfbNPsAI.P8X.aqpedIJt54QY-1675280415-0-gaNycGzNByU)
+```
+unzip microsoft.ml.onnxruntime.1.8.1.nupkg and copy onnxruntime.dll
+install vc_redist.x64.exe
+cargo run --target x86_64-pc-windows-msvc [your-image-file]
+```
 ## Limiation
 Max image size = 1000 x 1000 px
