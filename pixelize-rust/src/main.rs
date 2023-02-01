@@ -68,9 +68,9 @@ fn normalize(data: Array<f32, Ix4>)->Array<f32, Ix4>{
     let R = data.slice(s![..,0..1,..,..]);
     let G = data.slice(s![..,1..2,..,..]);
     let B = data.slice(s![..,2..3,..,..]);
-    let R_norm : Array<f32, Ix4> = ((R.sub(R.mean().unwrap()))/(R.std(0.0_f32).max(0.1_f32)));//.mapv(|x| x.floor());
-    let G_norm : Array<f32, Ix4> = ((G.sub(G.mean().unwrap()))/(G.std(0.0_f32).max(0.1_f32)));//.mapv(|x| x.floor());
-    let B_norm : Array<f32, Ix4> = ((B.sub(B.mean().unwrap()))/(B.std(0.0_f32).max(0.1_f32)));//.mapv(|x| x.floor());
+    let R_norm : Array<f32, Ix4> = (R.sub(R.mean().unwrap()))/(R.std(0.0_f32).max(0.1_f32));
+    let G_norm : Array<f32, Ix4> = (G.sub(G.mean().unwrap()))/(G.std(0.0_f32).max(0.1_f32));
+    let B_norm : Array<f32, Ix4> = (B.sub(B.mean().unwrap()))/(B.std(0.0_f32).max(0.1_f32));
     let N_arr = ndarray::concatenate(ndarray::Axis(1), &[R_norm.view(), G_norm.view(), B_norm.view()]).unwrap();
     N_arr
 }
@@ -216,8 +216,8 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
     let reference_image = ImageReader::new(reference_b).with_guessed_format().unwrap().decode().unwrap().into_rgb32f();
     let reference_arr = normalize(grayscale(image_to_arr(reference_image, 256, 256)));
     for filename in image_path{
-        println!("{:?}", filename);
-        let image = ImageReader::open(filename).expect("File open failed")
+        println!("{}", filename);
+        let image = ImageReader::open(filename.clone()).expect("File open failed")
             .decode().expect("File decode failed").into_rgb32f();
         let mut data = Rgb32FImage::new(1000, 1000);
         image::imageops::tile(&mut data, &image);
@@ -225,7 +225,7 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
         let output: Array<f32, Ix4> = process_image(models, data_arr, reference_arr.clone());
         let mut img_p = arr_to_image(output, 1000, 1000);
         let sub_img_p = image::imageops::crop(&mut img_p, 0, 0, image.width(), image.height());
-        let path = format!("../../input_file.pixelized.png");
+        let path = format!("{}.pixelized.png", std::path::Path::new(&filename).file_stem().unwrap().to_str().unwrap());
         sub_img_p.to_image().save_with_format(&path, image::ImageFormat::Png).expect("File save failed");
     }
     Ok(())
