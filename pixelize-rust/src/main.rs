@@ -4,8 +4,9 @@
 //use std::{env, error::Error, io::Cursor, ops::Mul, ops::Add, ops::Sub, ops::Div};
 use std::{env, io::Cursor, ops::Mul, ops::Sub, };
 
-use image::{io::Reader as ImageReader, Rgb32FImage, RgbImage};
+use image::{io::Reader as ImageReader, Rgb32FImage, RgbImage, AnimationDecoder};
 use image;
+use std::fs::File;
 
 use std::collections::HashMap;
 use onnxruntime::{
@@ -223,33 +224,45 @@ fn arr_to_image(arr: Array<f32, Ix4>, h:u32, w:u32) -> RgbImage{
     image
 }
 
-enum Frames<'a>{
-    Image(image::DynamicImage),
-    Frames(image::Frames<'a>),
+enum Media{
+    //Frame(image::DynamicImage),
+    Frame((image::DynamicImage,(u8, u8, u8))),
+    Frames((Vec<image::DynamicImage>,(u8, u8, u8))),
 }
 
-fn load_file(filename: String) -> image::DynamicImage{
+fn load_file(filename: String) -> Media{
     let format = image::ImageFormat::from_path(filename.clone()).expect("Unrecognized file type");
-	let image_ =
-    match format {
-        image::ImageFormat::Png => {
-			println!("png");
-			ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
+	let media = match format {
+		image::ImageFormat::Png => {
+			let image = ImageReader::open(filename).expect("File open failed");
+			let x = image.decode().expect("File decode failed");
+            // TODO : get background color from file
+			Media::Frame((x, (255,255,255)))
 		}
-		image::ImageFormat::Gif | image::ImageFormat::WebP => {
-			println!("Gif or WebP");
-			ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
+		image::ImageFormat::WebP => {
+            let file_in = File::open(filename).expect("File open failed");
+            let decoder = image::codecs::webp::WebPDecoder::new(file_in).unwrap();
+            let frames = decoder.into_frames();
+            let frames = frames.collect_frames().expect("error decoding gif");
+            let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
+            Media::Frames((frames, (255,255,255)))
         }
-		image::ImageFormat::Jpeg | image::ImageFormat::WebP => {
-			println!("JPG");
-			ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
-        }
-        _ => ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
-    };
-        //get_frames
-    let image = ImageReader::open(filename.clone()).expect("File open failed")
-                    .decode().expect("File decode failed");
-    image
+		image::ImageFormat::Gif => {
+			let file_in = File::open(filename).expect("File open failed");
+			let decoder = image::codecs::gif::GifDecoder::new(file_in).unwrap();
+			let frames = decoder.into_frames();
+			let frames = frames.collect_frames().expect("error decoding gif");
+			let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
+            // TODO : get background color from file
+            Media::Frames((frames, (255,255,255)))
+		}
+		_ => {
+			let image = ImageReader::open(filename).expect("File open failed");
+			let x = image.decode().expect("File decode failed");
+			Media::Frame((x, (255,255,255)))
+		}
+	};
+	media
 }
 
 fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<'_>>, image_path: Vec<String>) -> Result<(),()>{
@@ -258,12 +271,13 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
     let reference_arr = normalize(grayscale(image_to_arr(reference_image, 256, 256)));
     for filename in image_path{
         println!("{}", filename);
-        //let image = ImageReader::open(filename.clone()).expect("File open failed")
-        //    .decode().expect("File decode failed").into_rgb32f();
-        let image = load_file(filename.clone()).into_rgb32f();
+        let media = load_file(filename.clone());
+        let image = match media{
+            Media::Frames((images, bgcolor)) => Rgb32FImage::new(1,1),
+            Media::Frame((image, bgcolor)) => image.into_rgb32f(),
+        };
         //let mut data = Rgb32FImage::new(1000, 1000);
         let mut data = Rgb32FImage::from_pixel(1000, 1000, image::Rgb::<f32>([0.5_f32,0.5_f32,0.5_f32]));
-        //let mut data = Rgb32FImage::from_pixel(1000, 1000, [0.5,0.5,0.5]);
         image::imageops::overlay(&mut data, &image, 0, 0);
         let data_arr = normalize(image_to_arr(data, 1000, 1000));
         let output: Array<f32, Ix4> = process_image(models, data_arr, reference_arr.clone());
