@@ -234,16 +234,24 @@ fn load_file(filename: String) -> Media{
     let format = image::ImageFormat::from_path(filename.clone()).expect("Unrecognized file type");
 	let media = match format {
 		image::ImageFormat::Png => {
-			let image = ImageReader::open(filename).expect("File open failed");
-			let x = image.decode().expect("File decode failed");
-            // TODO : get background color from file
-			Media::Frame((x, (255,255,255)))
+            let info = pngchat::Png::from_file(filename.clone()).expect("File open failed");
+            println!("png info : {:?}",info.chunks());
+            let bkgd = info.chunk_by_type(&"bKGD");
+
+            let file_in = File::open(filename).expect("File open failed");
+            let decoder = image::codecs::png::PngDecoder::new(file_in).unwrap();
+            let apng = decoder.is_apng();
+            let frames = decoder.apng().into_frames();
+            let frames = frames.collect_frames().expect("error decoding png");
+            let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
+
+			Media::Frames((frames, (255,255,255)))
 		}
 		image::ImageFormat::WebP => {
             let file_in = File::open(filename).expect("File open failed");
             let decoder = image::codecs::webp::WebPDecoder::new(file_in).unwrap();
             let frames = decoder.into_frames();
-            let frames = frames.collect_frames().expect("error decoding gif");
+            let frames = frames.collect_frames().expect("error decoding webp");
             let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
             Media::Frames((frames, (255,255,255)))
         }
@@ -253,7 +261,6 @@ fn load_file(filename: String) -> Media{
 			let frames = decoder.into_frames();
 			let frames = frames.collect_frames().expect("error decoding gif");
 			let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
-            // TODO : get background color from file
             Media::Frames((frames, (255,255,255)))
 		}
 		_ => {
