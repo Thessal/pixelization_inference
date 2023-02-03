@@ -1,4 +1,8 @@
-use std::{env, error::Error, io::Cursor, ops::Mul, ops::Add, ops::Sub};
+#![allow(non_snake_case)]
+//#![allow(non_camel_case_types)]
+
+//use std::{env, error::Error, io::Cursor, ops::Mul, ops::Add, ops::Sub, ops::Div};
+use std::{env, io::Cursor, ops::Mul, ops::Sub, };
 
 use image::{io::Reader as ImageReader, Rgb32FImage, RgbImage};
 use image;
@@ -6,14 +10,16 @@ use image;
 use std::collections::HashMap;
 use onnxruntime::{
     environment::Environment, 
-    ndarray::{Array, Dim, Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, IxDyn, s, ArrayView},
+    //ndarray::{Array, Dim, Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, IxDyn, s, ArrayView},
+    ndarray::{Array, Ix2, Ix3, Ix4, IxDyn, s, },
     //tensor::{OrtOwnedTensor, FromArray, InputTensor},
-    tensor::{OrtOwnedTensor},
+    //tensor::{OrtOwnedTensor},
     GraphOptimizationLevel, LoggingLevel, OrtError
 };
 
+
 fn load_model<'a>(environment:&'a Environment, bytes:&'a[u8]) -> Result<onnxruntime::session::Session<'a>, OrtError> {
-    let mut session = environment
+    let session = environment
         .new_session_builder().unwrap()
         .with_optimization_level(GraphOptimizationLevel::Basic).unwrap()
         .with_number_threads((num_cpus::get() as usize).try_into().unwrap()).unwrap()
@@ -68,9 +74,15 @@ fn normalize(data: Array<f32, Ix4>)->Array<f32, Ix4>{
     let R = data.slice(s![..,0..1,..,..]);
     let G = data.slice(s![..,1..2,..,..]);
     let B = data.slice(s![..,2..3,..,..]);
-    let R_norm : Array<f32, Ix4> = (R.sub(R.mean().unwrap()))/(R.std(0.0_f32).max(0.1_f32));
-    let G_norm : Array<f32, Ix4> = (G.sub(G.mean().unwrap()))/(G.std(0.0_f32).max(0.1_f32));
-    let B_norm : Array<f32, Ix4> = (B.sub(B.mean().unwrap()))/(B.std(0.0_f32).max(0.1_f32));
+    //let R_norm : Array<f32, Ix4> = (R.sub(R.mean().unwrap()))/(R.std(0.0_f32).max(0.1_f32));
+    //let G_norm : Array<f32, Ix4> = (G.sub(G.mean().unwrap()))/(G.std(0.0_f32).max(0.1_f32));
+    //let B_norm : Array<f32, Ix4> = (B.sub(B.mean().unwrap()))/(B.std(0.0_f32).max(0.1_f32));
+    //let R_norm : Array<f32, Ix4> = ((R.div(255.0_f32))-0.5_f32) * 1.4_f32;
+    //let G_norm : Array<f32, Ix4> = ((G.div(255.0_f32))-0.5_f32) * 1.4_f32; 
+    //let B_norm : Array<f32, Ix4> = ((B.div(255.0_f32))-0.5_f32) * 1.4_f32;
+    let R_norm : Array<f32, Ix4> = R.sub(0.5_f32) * 1.4_f32;
+    let G_norm : Array<f32, Ix4> = G.sub(0.5_f32) * 1.4_f32; 
+    let B_norm : Array<f32, Ix4> = B.sub(0.5_f32) * 1.4_f32;
     let N_arr = ndarray::concatenate(ndarray::Axis(1), &[R_norm.view(), G_norm.view(), B_norm.view()]).unwrap();
     N_arr
 }
@@ -185,7 +197,7 @@ fn process_image(models: &mut HashMap<String, onnxruntime::session::Session<'_>>
         let alias_RGBDec = models.get_mut(&("alias_RGBDec".to_string())).unwrap();
         images = (*alias_RGBDec.run( vec![images] ).unwrap()[0]).to_owned()
     }
-    let mut output : Array<f32, Ix4> = images.into_dimensionality::<Ix4>().unwrap();
+    let output : Array<f32, Ix4> = images.into_dimensionality::<Ix4>().unwrap();
     output 
 }
 
@@ -194,7 +206,7 @@ fn image_to_arr(image: Rgb32FImage, h:usize, w:usize) -> Array<f32,Ix4> {
     arr.swap_axes(1, 3); //hwc->cwh
     arr.swap_axes(2, 3); //cwh->chw
     arr = arr.as_standard_layout().to_owned();
-    arr *= 255.0_f32;
+    //arr *= 255.0_f32;
     arr
 }
 
@@ -204,10 +216,39 @@ fn arr_to_image(arr: Array<f32, Ix4>, h:u32, w:u32) -> RgbImage{
     arr_f.swap_axes(0,2); //cyx->xyc
     arr_f = arr_f.as_standard_layout().to_owned();
     arr_f = (arr_f + 1.0_f32) * 0.5_f32 * 255.0_f32;
-    let mut arr_i : Array<u8, Ix3> = arr_f.mapv(|elem| elem as u8);
-    let mut image = RgbImage::from_raw(h, w, arr_i.into_raw_vec()).unwrap();
+    let arr_i : Array<u8, Ix3> = arr_f.mapv(|elem| elem as u8);
+    let image = RgbImage::from_raw(h, w, arr_i.into_raw_vec()).unwrap();
     image::imageops::resize(&image, 250, 250, image::imageops::FilterType::Nearest);
     image::imageops::resize(&image, 1000, 1000, image::imageops::FilterType::Nearest);
+    image
+}
+
+enum Frames<'a>{
+    Image(image::DynamicImage),
+    Frames(image::Frames<'a>),
+}
+
+fn load_file(filename: String) -> image::DynamicImage{
+    let format = image::ImageFormat::from_path(filename.clone()).expect("Unrecognized file type");
+	let image_ =
+    match format {
+        image::ImageFormat::Png => {
+			println!("png");
+			ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
+		}
+		image::ImageFormat::Gif | image::ImageFormat::WebP => {
+			println!("Gif or WebP");
+			ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
+        }
+		image::ImageFormat::Jpeg | image::ImageFormat::WebP => {
+			println!("JPG");
+			ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
+        }
+        _ => ImageReader::open(filename.clone()).expect("File open failed").decode().expect("File decode failed")
+    };
+        //get_frames
+    let image = ImageReader::open(filename.clone()).expect("File open failed")
+                    .decode().expect("File decode failed");
     image
 }
 
@@ -217,10 +258,13 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
     let reference_arr = normalize(grayscale(image_to_arr(reference_image, 256, 256)));
     for filename in image_path{
         println!("{}", filename);
-        let image = ImageReader::open(filename.clone()).expect("File open failed")
-            .decode().expect("File decode failed").into_rgb32f();
-        let mut data = Rgb32FImage::new(1000, 1000);
-        image::imageops::tile(&mut data, &image);
+        //let image = ImageReader::open(filename.clone()).expect("File open failed")
+        //    .decode().expect("File decode failed").into_rgb32f();
+        let image = load_file(filename.clone()).into_rgb32f();
+        //let mut data = Rgb32FImage::new(1000, 1000);
+        let mut data = Rgb32FImage::from_pixel(1000, 1000, image::Rgb::<f32>([0.5_f32,0.5_f32,0.5_f32]));
+        //let mut data = Rgb32FImage::from_pixel(1000, 1000, [0.5,0.5,0.5]);
+        image::imageops::overlay(&mut data, &image, 0, 0);
         let data_arr = normalize(image_to_arr(data, 1000, 1000));
         let output: Array<f32, Ix4> = process_image(models, data_arr, reference_arr.clone());
         let mut img_p = arr_to_image(output, 1000, 1000);
@@ -244,5 +288,5 @@ fn main(){
         .build().unwrap();
     let mut models = load_model_all(&environment);
 
-    process_image_all(&mut models, args[1..].to_vec());
+    process_image_all(&mut models, args[1..].to_vec()).expect("Main loop failed");
 }
