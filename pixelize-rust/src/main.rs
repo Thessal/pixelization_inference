@@ -227,43 +227,72 @@ fn arr_to_image(arr: Array<f32, Ix4>, h:u32, w:u32) -> RgbImage{
 enum Media{
     //Frame(image::DynamicImage),
     Frame((image::DynamicImage,(u8, u8, u8))),
-    Frames((Vec<image::DynamicImage>,(u8, u8, u8))),
+    Frames((Vec<(image::DynamicImage, image::Delay)>,(u16, u16, u16))),
 }
 
 fn load_file(filename: String) -> Media{
+    let frame_to_data = |x:image::Frame| {
+        let delay = x.delay();
+        let image = image::DynamicImage::ImageRgba8(x.into_buffer());
+        (image, delay)
+    };
+    let frames_to_vec = |x : image::Frames| x.collect_frames().expect("Error decoding animation").into_iter().map(frame_to_data).collect();
     let format = image::ImageFormat::from_path(filename.clone()).expect("Unrecognized file type");
-	let media = match format {
-		image::ImageFormat::Png => {
+    use image::ImageFormat::{Png as Png, WebP as WebP, Gif as Gif};
+            let file_in = File::open(filename.clone()).expect("File open failed");
+    let media = match format {
+        Png => {
             let info = pngchat::Png::from_file(filename.clone()).expect("File open failed");
-            println!("png info : {:?}",info.chunks());
+            //println!("png info : {:?}",info.chunks());
             let bkgd = info.chunk_by_type(&"bKGD");
-
-            let file_in = File::open(filename).expect("File open failed");
+            //samples : https://www.nayuki.io/page/png-file-chunk-inspector
+            //spec : http://www.libpng.org/pub/png/spec/1.2/PNG-Chunks.html
+            let bgcolor = match bkgd {
+                Some(x) => {
+                    let chunk_data = x.data();
+                    //println!("bKGD : {:?}", chunk_data);
+                    //println!("{:?}", ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,); 
+                    match chunk_data.len(){
+                        1 => {
+                            println!("Palette index in Background color (bKGD color type 3) is not supported yet. Using white color as background.");
+                            (255,255,255)
+                        },
+                        2 => (
+                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
+                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
+                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
+                            ),
+                        3 => (
+                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
+                            ((chunk_data[1] as u16) << 8) | chunk_data[2] as u16,
+                            ((chunk_data[2] as u16) << 8) | chunk_data[3] as u16,
+                            ),
+                        _ => {
+                            (255,255,255)
+                        }
+                    }
+                },
+                None => {
+                    println!("No bKGD chunk was detected in PNG file. Using white as background color.");
+                    (255,255,255)
+                },
+            };
             let decoder = image::codecs::png::PngDecoder::new(file_in).unwrap();
             let apng = decoder.is_apng();
-            let frames = decoder.apng().into_frames();
-            let frames = frames.collect_frames().expect("error decoding png");
-            let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
-
-			Media::Frames((frames, (255,255,255)))
-		}
-		image::ImageFormat::WebP => {
-            let file_in = File::open(filename).expect("File open failed");
+            let frames = frames_to_vec(decoder.apng().into_frames());
+            Media::Frames((frames, bgcolor))
+        }
+        WebP => {
             let decoder = image::codecs::webp::WebPDecoder::new(file_in).unwrap();
-            let frames = decoder.into_frames();
-            let frames = frames.collect_frames().expect("error decoding webp");
-            let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
+            let frames = frames_to_vec(decoder.into_frames());
             Media::Frames((frames, (255,255,255)))
         }
-		image::ImageFormat::Gif => {
-			let file_in = File::open(filename).expect("File open failed");
-			let decoder = image::codecs::gif::GifDecoder::new(file_in).unwrap();
-			let frames = decoder.into_frames();
-			let frames = frames.collect_frames().expect("error decoding gif");
-			let frames = frames.into_iter().map(|x| image::DynamicImage::ImageRgba8(x.into_buffer())).collect();
+        Gif => {
+            let decoder = image::codecs::gif::GifDecoder::new(file_in).unwrap();
+            let frames = frames_to_vec(decoder.into_frames());
             Media::Frames((frames, (255,255,255)))
-		}
-		_ => {
+        }
+        _ => {
 			let image = ImageReader::open(filename).expect("File open failed");
 			let x = image.decode().expect("File decode failed");
 			Media::Frame((x, (255,255,255)))
