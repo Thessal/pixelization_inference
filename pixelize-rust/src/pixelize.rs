@@ -1,6 +1,6 @@
 #![allow(non_snake_case)]
 
-use std::{ops::Mul, ops::Sub, };
+use std::{ops::Mul, ops::Sub, ops::Add};
 
 //use image;
 use std::collections::HashMap;
@@ -35,6 +35,17 @@ pub fn normalize(data: Array<f32, Ix4>)->Array<f32, Ix4>{
     let R_norm : Array<f32, Ix4> = R.sub(0.5_f32) * 1.4_f32;
     let G_norm : Array<f32, Ix4> = G.sub(0.5_f32) * 1.4_f32; 
     let B_norm : Array<f32, Ix4> = B.sub(0.5_f32) * 1.4_f32;
+    let N_arr = ndarray::concatenate(ndarray::Axis(1), &[R_norm.view(), G_norm.view(), B_norm.view()]).unwrap();
+    N_arr
+}
+
+pub fn denormalize(data: Array<f32, Ix4>)->Array<f32, Ix4>{
+    let R = data.slice(s![..,0..1,..,..]);
+    let G = data.slice(s![..,1..2,..,..]);
+    let B = data.slice(s![..,2..3,..,..]);
+    let R_norm : Array<f32, Ix4> = R.add(1.0_f32).mul(0.5_f32).mapv(|v| v.max(0.).min(1.));
+    let G_norm : Array<f32, Ix4> = G.add(1.0_f32).mul(0.5_f32).mapv(|v| v.max(0.).min(1.));
+    let B_norm : Array<f32, Ix4> = B.add(1.0_f32).mul(0.5_f32).mapv(|v| v.max(0.).min(1.));
     let N_arr = ndarray::concatenate(ndarray::Axis(1), &[R_norm.view(), G_norm.view(), B_norm.view()]).unwrap();
     N_arr
 }

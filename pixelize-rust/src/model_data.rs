@@ -36,6 +36,8 @@ pub fn load_model_all<'a>(environment:&'a Environment)-> HashMap<std::string::St
     // FastDVDNet
     model_data.insert("block1".to_string(), include_bytes!("../../block1.onnx"));
     model_data.insert("block2".to_string(), include_bytes!("../../block2.onnx"));
+    model_data.insert("block1_256".to_string(), include_bytes!("../../block1_256.onnx"));
+    model_data.insert("block2_256".to_string(), include_bytes!("../../block2_256.onnx"));
 
     let model_names = model_data.keys().cloned();
     let models = model_names

@@ -19,7 +19,7 @@ m = pixelization.Model(device=device)
 m.device=torch.device(device)
 m.load()
 
-max_size = 1000
+max_size = 1024
 
 # +
 in_img = Image.fromarray(np.zeros((max_size,max_size,3),dtype=np.int32), mode="RGB")
@@ -187,7 +187,7 @@ def pixelize(in_img):
     return img
 
 
-pixelize(Image.open("input_file.jpg").convert('RGB').resize((1000,1000)))
+pixelize(Image.open("input_file.jpg").convert('RGB').resize((max_size,max_size)))
 # -
 
 

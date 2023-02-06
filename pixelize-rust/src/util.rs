@@ -16,16 +16,29 @@ pub fn image_to_arr(image: Rgb32FImage, h:usize, w:usize) -> Array<f32,Ix4> {
     arr
 }
 
+//pub fn arr_quarter(arr:Array<f32, Ix4>, h:u32, w:u32) -> Array<f32, Ix4>{
+//    let mut arr_f : Array<f32, Ix3> = arr.slice(s![0,..,..,..]).to_owned();
+//    arr_f.swap_axes(1,2); //cxy->cyx
+//    arr_f.swap_axes(0,2); //cyx->xyc
+//    arr_f = arr_f.as_standard_layout().to_owned();
+//    let mut image = Rgb32FImage::from_raw(h, w, arr_f.into_raw_vec()).unwrap();
+//    image = image::imageops::resize(&image, h/ 4, w / 4, image::imageops::FilterType::Nearest);
+//    println!("{:?}",image.width());
+//    println!("{:?}",image.height());
+//    let pixel_1x_arr = image_to_arr(image, (h / 4) as usize, (w/4) as usize);
+//    pixel_1x_arr
+//}
+
 pub fn arr_to_image(arr: Array<f32, Ix4>, h:u32, w:u32) -> RgbImage{
     let mut arr_f : Array<f32, Ix3> = arr.slice(s![0,..,..,..]).to_owned();
     arr_f.swap_axes(1,2); //cxy->cyx
     arr_f.swap_axes(0,2); //cyx->xyc
     arr_f = arr_f.as_standard_layout().to_owned();
-    arr_f = (arr_f + 1.0_f32) * 0.5_f32 * 255.0_f32;
+    arr_f = arr_f * 255.99_f32;
     let arr_i : Array<u8, Ix3> = arr_f.mapv(|elem| elem as u8);
     let image = RgbImage::from_raw(h, w, arr_i.into_raw_vec()).unwrap();
-    image::imageops::resize(&image, 250, 250, image::imageops::FilterType::Nearest);
-    image::imageops::resize(&image, 1000, 1000, image::imageops::FilterType::Nearest);
+    //image::imageops::resize(&image, 250, 250, image::imageops::FilterType::Nearest);
+    //image::imageops::resize(&image, 1000, 1000, image::imageops::FilterType::Nearest);
     image
 }
 
