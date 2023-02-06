@@ -1,364 +1,46 @@
 #![allow(non_snake_case)]
-//#![allow(non_camel_case_types)]
 
-//use std::{env, error::Error, io::Cursor, ops::Mul, ops::Add, ops::Sub, ops::Div};
-use std::{env, io::Cursor, ops::Mul, ops::Sub, };
+pub mod util;
+pub mod pixelize;
+pub mod denoise;
+pub mod model_data;
 
-use image::{io::Reader as ImageReader, Rgb32FImage, RgbImage, AnimationDecoder};
+use std::{env, io::Cursor};
+
+use image::{io::Reader as ImageReader, Rgb32FImage};
 use image;
-use std::fs::File;
 
 use std::collections::HashMap;
 use onnxruntime::{
     environment::Environment, 
-    //ndarray::{Array, Dim, Ix0, Ix1, Ix2, Ix3, Ix4, Ix5, IxDyn, s, ArrayView},
-    ndarray::{Array, Ix2, Ix3, Ix4, Ix5, IxDyn, s, concatenate, Axis},
-    //tensor::{OrtOwnedTensor, FromArray, InputTensor},
-    //tensor::{OrtOwnedTensor},
-    GraphOptimizationLevel, LoggingLevel, OrtError
+    ndarray::{Array, Ix4},
+    LoggingLevel
 };
-
-
-fn load_model<'a>(environment:&'a Environment, bytes:&'a[u8]) -> Result<onnxruntime::session::Session<'a>, OrtError> {
-    let session = environment
-        .new_session_builder().unwrap()
-        .with_optimization_level(GraphOptimizationLevel::Basic).unwrap()
-        .with_number_threads((num_cpus::get() as usize).try_into().unwrap()).unwrap()
-        .with_model_from_memory(bytes);
-    session
-}
-
-fn load_model_all<'a>(environment:&'a Environment)-> HashMap<std::string::String, onnxruntime::session::Session<'a>>{
-    let mut model_data = HashMap::<String, &[u8]>::new();
-
-    // Pixelizer
-    model_data.insert("alias_RGBEnc".to_string(), include_bytes!("../../alias_RGBEnc.onnx"));
-    model_data.insert("alias_RGBDec".to_string(), include_bytes!("../../alias_RGBDec.onnx"));
-    model_data.insert("g_a_RGBEnc".to_string(), include_bytes!("../../g_a_RGBEnc.onnx"));
-    model_data.insert("g_a_PBEnc".to_string(), include_bytes!("../../g_a_PBEnc.onnx"));
-    model_data.insert("g_a_MLP".to_string(), include_bytes!("../../g_a_MLP.onnx"));
-    model_data.insert("g_a_RGBDec_mod_conv_1".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_1.onnx"));
-    model_data.insert("g_a_RGBDec_mod_conv_2".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_2.onnx"));
-    //model_data.insert("g_a_RGBDec_mod_conv_3".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_3.onnx"));
-    //model_data.insert("g_a_RGBDec_mod_conv_4".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_4.onnx"));
-    //model_data.insert("g_a_RGBDec_mod_conv_5".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_5.onnx"));
-    //model_data.insert("g_a_RGBDec_mod_conv_6".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_6.onnx"));
-    //model_data.insert("g_a_RGBDec_mod_conv_7".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_7.onnx"));
-    //model_data.insert("g_a_RGBDec_mod_conv_8".to_string(), include_bytes!("../../g_a_RGBDec_mod_conv_8.onnx"));
-    model_data.insert("g_a_RGBDec_upsample_block1".to_string(), include_bytes!("../../g_a_RGBDec_upsample_block1.onnx"));
-    model_data.insert("g_a_RGBDec_upsample_block2".to_string(), include_bytes!("../../g_a_RGBDec_upsample_block2.onnx"));
-    model_data.insert("g_a_RGBDec_conv_1".to_string(), include_bytes!("../../g_a_RGBDec_conv_1.onnx"));
-    model_data.insert("g_a_RGBDec_conv_2".to_string(), include_bytes!("../../g_a_RGBDec_conv_2.onnx"));
-    model_data.insert("g_a_RGBDec_conv_3".to_string(), include_bytes!("../../g_a_RGBDec_conv_3.onnx"));
-
-    // FastDVDNet
-    model_data.insert("block1".to_string(), include_bytes!("../../block1.onnx"));
-    model_data.insert("block2".to_string(), include_bytes!("../../block2.onnx"));
-
-    let model_names = model_data.keys().cloned();
-    let models = model_names
-        .map(
-            |i| (i.clone(), load_model(&environment, model_data[&i]).expect("Model Load Error"))
-            ).collect::<HashMap<String, onnxruntime::session::Session<'a>>>();
-    models
-}
-
-fn grayscale(data: Array<f32, Ix4>)->Array<f32, Ix4>{
-    // ITU-R 601-2 : L = R * 299/1000 + G * 587/1000 + B * 114/1000
-    let R = data.slice(s![..,0..1,..,..]);
-    let G = data.slice(s![..,1..2,..,..]);
-    let B = data.slice(s![..,2..3,..,..]);
-    let L : Array<f32, Ix4> = R.mul(0.299_f32) + G.mul(0.587_f32) + B.mul(0.114_f32);
-    let L_arr = ndarray::concatenate(ndarray::Axis(1), &[L.view(), L.view(), L.view()]).unwrap();
-    //let mut L_arr = Array::<f32, Ix4>::zeros(data.raw_dim());
-    //L_arr.slice_mut(s![..,0..1,..,..]).assign(&L);
-    //L_arr.slice_mut(s![..,1..2,..,..]).assign(&L);
-    //L_arr.slice_mut(s![..,2..3,..,..]).assign(&L);
-    L_arr
-}
-
-fn normalize(data: Array<f32, Ix4>)->Array<f32, Ix4>{
-    let R = data.slice(s![..,0..1,..,..]);
-    let G = data.slice(s![..,1..2,..,..]);
-    let B = data.slice(s![..,2..3,..,..]);
-    //let R_norm : Array<f32, Ix4> = (R.sub(R.mean().unwrap()))/(R.std(0.0_f32).max(0.1_f32));
-    //let G_norm : Array<f32, Ix4> = (G.sub(G.mean().unwrap()))/(G.std(0.0_f32).max(0.1_f32));
-    //let B_norm : Array<f32, Ix4> = (B.sub(B.mean().unwrap()))/(B.std(0.0_f32).max(0.1_f32));
-    //let R_norm : Array<f32, Ix4> = ((R.div(255.0_f32))-0.5_f32) * 1.4_f32;
-    //let G_norm : Array<f32, Ix4> = ((G.div(255.0_f32))-0.5_f32) * 1.4_f32; 
-    //let B_norm : Array<f32, Ix4> = ((B.div(255.0_f32))-0.5_f32) * 1.4_f32;
-    let R_norm : Array<f32, Ix4> = R.sub(0.5_f32) * 1.4_f32;
-    let G_norm : Array<f32, Ix4> = G.sub(0.5_f32) * 1.4_f32; 
-    let B_norm : Array<f32, Ix4> = B.sub(0.5_f32) * 1.4_f32;
-    let N_arr = ndarray::concatenate(ndarray::Axis(1), &[R_norm.view(), G_norm.view(), B_norm.view()]).unwrap();
-    N_arr
-}
-
-
-fn g_a_RGBDec(models: &mut HashMap<String, onnxruntime::session::Session<'_>>, 
-              x:Array<f32, Ix4>, code:Array<f32, Ix2>) -> Array<f32, Ix4>{
-    let mut x_ : Array<f32, IxDyn> = x.clone().into_dyn();
-    let code_0 : Array<f32, IxDyn> = code.slice(s![..,..256]).to_owned().into_dyn();
-    let code_1 : Array<f32, IxDyn> = code.slice(s![..,256*1..256*2]).to_owned().into_dyn();
-    let code_2 : Array<f32, IxDyn> = code.slice(s![..,256*2..256*3]).to_owned().into_dyn();
-    let code_3 : Array<f32, IxDyn> = code.slice(s![..,256*3..256*4]).to_owned().into_dyn();
-    let code_4 : Array<f32, IxDyn> = code.slice(s![..,256*4..256*5]).to_owned().into_dyn();
-    let code_5 : Array<f32, IxDyn> = code.slice(s![..,256*5..256*6]).to_owned().into_dyn();
-    let code_6 : Array<f32, IxDyn> = code.slice(s![..,256*6..256*7]).to_owned().into_dyn();
-    let code_7 : Array<f32, IxDyn> = code.slice(s![..,256*7..256*8]).to_owned().into_dyn();
-    {
-        let residual = x_.clone();
-        {
-            let g_a_RGBDec_mod_conv_1 = models.get_mut(&("g_a_RGBDec_mod_conv_1".to_string())).unwrap();
-            x_ = (*g_a_RGBDec_mod_conv_1.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_0 ]).unwrap()[0]).to_owned();
-        }
-        {
-            let g_a_RGBDec_mod_conv_2 = models.get_mut(&("g_a_RGBDec_mod_conv_2".to_string())).unwrap();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_1 ]).unwrap()[0]).to_owned();
-        }
-        x_ = x_ + residual;
-    }
-    { // TODO : reduce redundancy
-        let residual = x_.clone();
-        {
-            let g_a_RGBDec_mod_conv_2 = models.get_mut(&("g_a_RGBDec_mod_conv_2".to_string())).unwrap();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_2 ]).unwrap()[0]).to_owned();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_3 ]).unwrap()[0]).to_owned();
-        }
-        x_ = x_ + residual;
-    }
-    {
-        let residual = x_.clone();
-        {
-            let g_a_RGBDec_mod_conv_2 = models.get_mut(&("g_a_RGBDec_mod_conv_2".to_string())).unwrap();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_4 ]).unwrap()[0]).to_owned();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_5 ]).unwrap()[0]).to_owned();
-        }
-        x_ = x_ + residual;
-    }
-    {
-        let residual = x_.clone();
-        {
-            let g_a_RGBDec_mod_conv_2 = models.get_mut(&("g_a_RGBDec_mod_conv_2".to_string())).unwrap();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_6 ]).unwrap()[0]).to_owned();
-            x_ = (*g_a_RGBDec_mod_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_, code_7 ]).unwrap()[0]).to_owned();
-        }
-        x_ = x_ + residual;
-    }
-    {
-        let g_a_RGBDec_upsample_block1 = models.get_mut(&("g_a_RGBDec_upsample_block1".to_string())).unwrap();
-        x_ = (*g_a_RGBDec_upsample_block1.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_]).unwrap()[0]).to_owned();
-    }
-    {
-        let g_a_RGBDec_conv_1 = models.get_mut(&("g_a_RGBDec_conv_1".to_string())).unwrap();
-        x_ = (*g_a_RGBDec_conv_1.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_]).unwrap()[0]).to_owned();
-    }
-    {
-        let g_a_RGBDec_upsample_block2 = models.get_mut(&("g_a_RGBDec_upsample_block2".to_string())).unwrap();
-        x_ = (*g_a_RGBDec_upsample_block2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_]).unwrap()[0]).to_owned();
-    }
-    {
-        let g_a_RGBDec_conv_2 = models.get_mut(&("g_a_RGBDec_conv_2".to_string())).unwrap();
-        x_ = (*g_a_RGBDec_conv_2.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_]).unwrap()[0]).to_owned();
-    }
-    {
-        let g_a_RGBDec_conv_3 = models.get_mut(&("g_a_RGBDec_conv_3".to_string())).unwrap();
-        x_ = (*g_a_RGBDec_conv_3.run::<'_, '_, '_, f32, f32, IxDyn>( vec![x_]).unwrap()[0]).to_owned();
-    }
-
-    x_.into_dimensionality::<Ix4>().unwrap()
-}
-
-fn g_a<'a>(models: &mut HashMap<String, onnxruntime::session::Session<'_>>, 
-       clipart:Array<f32, Ix4>, pixelart:Array<f32, Ix4>) -> Array<f32, Ix4>{
-    let clipart_ = vec![clipart];
-    let pixelart_ = vec![pixelart];
-    let feature : Array<f32, Ix4>;
-    let code : Array<f32, IxDyn>;
-    let adain_params : Array<f32, Ix2>;
-    {
-        let g_a_RGBEnc = models.get_mut(&("g_a_RGBEnc".to_string())).unwrap();
-        feature = (*g_a_RGBEnc.run( clipart_ ).unwrap()[0]).to_owned().into_dimensionality::<Ix4>().unwrap();
-    }
-    {
-        let g_a_PBEnc = models.get_mut(&("g_a_PBEnc".to_string())).unwrap();
-        code = (*g_a_PBEnc.run(pixelart_).unwrap()[0]).to_owned();
-    }
-    {
-        let g_a_MLP = models.get_mut(&("g_a_MLP".to_string())).unwrap();
-        adain_params = (*g_a_MLP.run(vec![code]).unwrap()[0]).to_owned().into_dimensionality::<Ix2>().unwrap();
-    }
-    let images : Array<f32, Ix4> = g_a_RGBDec(models, feature, adain_params).into_dimensionality::<Ix4>().unwrap();
-    images
-}
-
-fn process_image(models: &mut HashMap<String, onnxruntime::session::Session<'_>>, 
-                 data: Array<f32, Ix4>, reference: Array<f32, Ix4>) -> Array<f32, Ix4> {
-    let mut images : Array<f32, IxDyn> = g_a(models, data, reference).into_dyn();
-    {
-        let alias_RGBEnc = models.get_mut(&("alias_RGBEnc".to_string())).unwrap();
-        images = (*alias_RGBEnc.run( vec![images] ).unwrap()[0]).to_owned()
-    }
-    {
-        let alias_RGBDec = models.get_mut(&("alias_RGBDec".to_string())).unwrap();
-        images = (*alias_RGBDec.run( vec![images] ).unwrap()[0]).to_owned()
-    }
-    let output : Array<f32, Ix4> = images.into_dimensionality::<Ix4>().unwrap();
-    output 
-}
-
-fn image_to_arr(image: Rgb32FImage, h:usize, w:usize) -> Array<f32,Ix4> {
-    let mut arr = Array::from_iter(image.iter().map(|x| *x)).into_shape((1, h, w, 3)).unwrap();
-    arr.swap_axes(1, 3); //hwc->cwh
-    arr.swap_axes(2, 3); //cwh->chw
-    arr = arr.as_standard_layout().to_owned();
-    //arr *= 255.0_f32;
-    arr
-}
-
-fn arr_to_image(arr: Array<f32, Ix4>, h:u32, w:u32) -> RgbImage{
-    let mut arr_f : Array<f32, Ix3> = arr.slice(s![0,..,..,..]).to_owned();
-    arr_f.swap_axes(1,2); //cxy->cyx
-    arr_f.swap_axes(0,2); //cyx->xyc
-    arr_f = arr_f.as_standard_layout().to_owned();
-    arr_f = (arr_f + 1.0_f32) * 0.5_f32 * 255.0_f32;
-    let arr_i : Array<u8, Ix3> = arr_f.mapv(|elem| elem as u8);
-    let image = RgbImage::from_raw(h, w, arr_i.into_raw_vec()).unwrap();
-    image::imageops::resize(&image, 250, 250, image::imageops::FilterType::Nearest);
-    image::imageops::resize(&image, 1000, 1000, image::imageops::FilterType::Nearest);
-    image
-}
-
-enum Media{
-    Frame((image::DynamicImage,(u8, u8, u8))),
-    Frames((Vec<(image::DynamicImage, image::Delay)>,(u16, u16, u16))),
-}
-
-fn load_file(filename: String) -> Media{
-    let frame_to_data = |x:image::Frame| {
-        let delay = x.delay();
-        let image = image::DynamicImage::ImageRgba8(x.into_buffer());
-        (image, delay)
-    };
-    let frames_to_vec = |x : image::Frames| x.collect_frames().expect("Error decoding animation").into_iter().map(frame_to_data).collect();
-    let format = image::ImageFormat::from_path(filename.clone()).expect("Unrecognized file type");
-    use image::ImageFormat::{Png as Png, WebP as WebP, Gif as Gif};
-            let file_in = File::open(filename.clone()).expect("File open failed");
-    let media = match format {
-        Png => {
-            let info = pngchat::Png::from_file(filename.clone()).expect("File open failed");
-            //println!("png info : {:?}",info.chunks());
-            let bkgd = info.chunk_by_type(&"bKGD");
-            //samples : https://www.nayuki.io/page/png-file-chunk-inspector
-            //spec : http://www.libpng.org/pub/png/spec/1.2/PNG-Chunks.html
-            let bgcolor = match bkgd {
-                Some(x) => {
-                    let chunk_data = x.data();
-                    //println!("bKGD : {:?}", chunk_data);
-                    //println!("{:?}", ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,); 
-                    match chunk_data.len(){
-                        1 => {
-                            println!("Palette index in Background color (bKGD color type 3) is not supported yet. Using white color as background.");
-                            (255,255,255)
-                        },
-                        2 => (
-                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
-                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
-                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
-                            ),
-                        3 => (
-                            ((chunk_data[0] as u16) << 8) | chunk_data[1] as u16,
-                            ((chunk_data[1] as u16) << 8) | chunk_data[2] as u16,
-                            ((chunk_data[2] as u16) << 8) | chunk_data[3] as u16,
-                            ),
-                        _ => {
-                            (255,255,255)
-                        }
-                    }
-                },
-                None => {
-                    println!("No bKGD chunk was detected in PNG file. Using white as background color.");
-                    (255,255,255)
-                },
-            };
-            let decoder = image::codecs::png::PngDecoder::new(file_in).unwrap();
-            let apng = decoder.is_apng();
-            let frames = frames_to_vec(decoder.apng().into_frames());
-            Media::Frames((frames, bgcolor))
-        }
-        WebP => {
-            let decoder = image::codecs::webp::WebPDecoder::new(file_in).unwrap();
-            let frames = frames_to_vec(decoder.into_frames());
-            Media::Frames((frames, (255,255,255)))
-        }
-        Gif => {
-            let decoder = image::codecs::gif::GifDecoder::new(file_in).unwrap();
-            let frames = frames_to_vec(decoder.into_frames());
-            Media::Frames((frames, (255,255,255)))
-        }
-        _ => {
-			let image = ImageReader::open(filename).expect("File open failed");
-			let x = image.decode().expect("File decode failed");
-			Media::Frame((x, (255,255,255)))
-		}
-	};
-	media
-}
-
-fn denoise(models: &mut HashMap<String, onnxruntime::session::Session<'_>>,
-           frames:Array<f32, Ix5>, noise_level:f32) -> Array<f32, Ix4>{
-    let block1 = models.get_mut(&("block1".to_string())).unwrap();
-    let noise_arr : Array<f32, Ix4> = Array::ones((1,3,1000,1000)).mul(noise_level);
-    let noise_arr = noise_arr.into_dyn();
-
-    let a0 : Array<f32, Ix5> = frames.slice(s![..,0..3,..,..,..]).to_owned();
-    let a0 = a0.into_shape((1,9,1000,1000)).unwrap().into_dyn();
-    let a0:Array<f32, IxDyn> = concatenate![Axis(1), a0, noise_arr];
-    let b0:Array<f32, Ix4> = frames.slice(s![..,1,..,..,..]).to_owned();
-    let b0 = b0.into_dyn();
-    let c0 = (*block1.run::<'_, '_, '_, f32, f32, IxDyn>(vec![a0, b0]).unwrap()[0]).to_owned();
-
-    let a1 : Array<f32, Ix5> = frames.slice(s![..,1..4,..,..,..]).to_owned();
-    let a1 = a1.into_shape((1,9,1000,1000)).unwrap().into_dyn();
-    let a1:Array<f32, IxDyn> = concatenate![Axis(1), a1, noise_arr];
-    let b1:Array<f32, Ix4> = frames.slice(s![..,1,..,..,..]).to_owned();
-    let b1 = b1.into_dyn();
-    let c1 = (*block1.run::<'_, '_, '_, f32, f32, IxDyn>(vec![a1, b1]).unwrap()[0]).to_owned();
-
-    let a2 : Array<f32, Ix5> = frames.slice(s![..,2..5,..,..,..]).to_owned();
-    let a2 = a2.into_shape((1,9,1000,1000)).unwrap().into_dyn();
-    let a2:Array<f32, IxDyn> = concatenate![Axis(1), a2, noise_arr];
-    let b2:Array<f32, Ix4> = frames.slice(s![..,1,..,..,..]).to_owned();
-    let b2 = b2.into_dyn();
-    let c2 = (*block1.run::<'_, '_, '_, f32, f32, IxDyn>(vec![a2, b2]).unwrap()[0]).to_owned();
-
-    let block2 = models.get_mut(&("block2".to_string())).unwrap();
-    let d:Array<f32, IxDyn> = concatenate![Axis(1), c0, c1, c2, noise_arr];
-    let e:Array<f32, IxDyn> = frames.slice(s![..,2,..,..,..]).to_owned().into_dyn();
-    let result = (*block2.run::<'_, '_, '_, f32, f32, IxDyn>(vec![d, e]).unwrap()[0]).to_owned();
-
-    let output: Array<f32, Ix4> = result.into_dimensionality::<Ix4>().unwrap();
-    output
-}
 
 
 fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<'_>>, image_path: Vec<String>) -> Result<(),()>{
     let reference_b = Cursor::new(include_bytes!("../../reference.png"));
     let reference_image = ImageReader::new(reference_b).with_guessed_format().unwrap().decode().unwrap().into_rgb32f();
-    let reference_arr = normalize(grayscale(image_to_arr(reference_image, 256, 256)));
+    let reference_arr = pixelize::normalize(pixelize::grayscale(util::image_to_arr(reference_image, 256, 256)));
     for filename in image_path{
+        // load
         println!("{}", filename);
-        let media = load_file(filename.clone());
+        let media = util::load_file(filename.clone());
         let image = match media{
-            Media::Frames((images, bgcolor)) => Rgb32FImage::new(1,1),
-            Media::Frame((image, bgcolor)) => image.into_rgb32f(),
+            util::Media::Frames((images, bgcolor)) => Rgb32FImage::new(1,1),
+            util::Media::Frame((image, bgcolor)) => image.into_rgb32f(),
         };
-        //let mut data = Rgb32FImage::new(1000, 1000);
+
+        // transform
         let mut data = Rgb32FImage::from_pixel(1000, 1000, image::Rgb::<f32>([0.5_f32,0.5_f32,0.5_f32]));
         image::imageops::overlay(&mut data, &image, 0, 0);
-        let data_arr = normalize(image_to_arr(data, 1000, 1000));
-        let output: Array<f32, Ix4> = process_image(models, data_arr, reference_arr.clone());
-        let mut img_p = arr_to_image(output, 1000, 1000);
+
+        // pixelize
+        let data_arr = pixelize::normalize(util::image_to_arr(data, 1000, 1000));
+        let output: Array<f32, Ix4> = pixelize::process_image(models, data_arr, reference_arr.clone());
+        let mut img_p = util::arr_to_image(output, 1000, 1000);
+
+        // save
         let sub_img_p = image::imageops::crop(&mut img_p, 0, 0, image.width(), image.height());
         let path = format!("{}.pixelized.png", std::path::Path::new(&filename).file_stem().unwrap().to_str().unwrap());
         sub_img_p.to_image().save_with_format(&path, image::ImageFormat::Png).expect("File save failed");
@@ -377,7 +59,7 @@ fn main(){
         .with_name("test")
         .with_log_level(LoggingLevel::Info)
         .build().unwrap();
-    let mut models = load_model_all(&environment);
+    let mut models = model_data::load_model_all(&environment);
 
     process_image_all(&mut models, args[1..].to_vec()).expect("Main loop failed");
 }
