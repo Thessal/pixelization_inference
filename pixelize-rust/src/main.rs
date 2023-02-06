@@ -27,7 +27,7 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
         |filename| {
             let media = util::load_file( filename.clone() );
             let image = match media{
-                util::Media::Frames((images, bgcolor)) => vec![(filename.clone(), Rgb32FImage::new(1,1))],
+                util::Media::Frames((images, bgcolor)) => vec![(filename.clone(), images[0].0.clone().into_rgb32f())], //FIXME
                 util::Media::Frame((image, bgcolor)) => vec![(filename.clone(), image.into_rgb32f())],
             };
             image
@@ -44,17 +44,17 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
         }).collect();
 
     //denoise
-    let n_frames = images_all.len();
+    let n_frames:usize = images_all.len();
     if n_frames >= 5 {
         let mut denoised_all: Vec<(String, Array<f32, Ix4>, (u32,u32))> = Vec::new();
         for i in 0..n_frames{
             // FIXME
             println!("Denoising {}", &arrs_all[i].0);
-            let f0 = &arrs_all[std::cmp::max(i-2, 0)].1;
-            let f1 = &arrs_all[std::cmp::max(i-1, 0)].1;
+            let f0 = &arrs_all[if i<2 {0} else {i-2}].1;
+            let f1 = &arrs_all[if i<1 {0} else {i-1}].1;
             let f2 = &arrs_all[i].1;
-            let f3 = &arrs_all[std::cmp::min(n_frames-1, i+1)].1;
-            let f4 = &arrs_all[std::cmp::min(n_frames-1, i+2)].1;
+            let f3 = &arrs_all[if i>n_frames-2 {n_frames-1} else {i+1}].1;
+            let f4 = &arrs_all[if i>n_frames-3 {n_frames-1} else {i+2}].1;
             let frames : Array<f32,Ix4> = ndarray::concatenate![Axis(0), f0.clone(), f1.clone(), f2.clone(), f3.clone(), f4.clone()]; 
             let frames : Array<f32,Ix5> = frames.insert_axis(Axis(0));
             let denoised = denoise::denoise(models, frames, noise_level);
@@ -72,10 +72,10 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
         println!("Pixelizing {}", filename);
         let data_arr = pixelize::normalize(data);
         let output: Array<f32, Ix4> = pixelize::process_image(models, data_arr, reference_arr.clone());
-        let mut img_p = util::arr_to_image(output, 1000, 1000);
+        let mut img_p = util::arr_to_image(output, size_h as u32, size_w as u32);
 
         //save
-        let sub_img_p = image::imageops::crop(&mut img_p, 0, 0, img_h, img_w);
+        let sub_img_p = image::imageops::crop(&mut img_p, 0, 0, img_w, img_h);
         let path = format!("{}.pixelized.png", std::path::Path::new(&filename).file_stem().unwrap().to_str().unwrap());
         sub_img_p.to_image().save_with_format(&path, image::ImageFormat::Png).expect("File save failed");
     }

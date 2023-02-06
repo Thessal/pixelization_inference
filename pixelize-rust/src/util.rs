@@ -1,5 +1,5 @@
 #![allow(non_snake_case)]
-use image::{io::Reader as ImageReader, Rgb32FImage, RgbImage, AnimationDecoder};
+use image::{io::Reader as ImageReader, Rgb32FImage, RgbImage, AnimationDecoder, ImageDecoder};
 use image;
 use std::fs::File;
 
@@ -83,8 +83,20 @@ pub fn load_file(filename: String) -> Media{
             };
             let decoder = image::codecs::png::PngDecoder::new(file_in).unwrap();
             let apng = decoder.is_apng();
-            let frames = frames_to_vec(decoder.apng().into_frames());
-            Media::Frames((frames, bgcolor))
+
+            match decoder.is_apng(){
+                true => {
+                    //let frames = frames_to_vec(decoder.apng().into_frames());
+                    let frames: Vec<(image::DynamicImage, image::Delay)> = frames_to_vec(decoder.apng().into_frames());
+                    println!("Frames in image {:}", frames.len());
+                    Media::Frames((frames, bgcolor))
+                }
+                false =>  {
+                    let image = ImageReader::open(filename).expect("File open failed");
+                    let x = image.decode().expect("File decode failed");
+                    Media::Frame((x, (255,255,255)))
+                }
+            }
         }
         WebP => {
             let decoder = image::codecs::webp::WebPDecoder::new(file_in).unwrap();
