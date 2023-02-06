@@ -7,7 +7,7 @@ use onnxruntime::{
     ndarray::{Array, Ix4, Ix5, IxDyn, s, concatenate, Axis},
 };
 
-fn denoise(models: &mut HashMap<String, onnxruntime::session::Session<'_>>,
+pub fn denoise(models: &mut HashMap<String, onnxruntime::session::Session<'_>>,
            frames:Array<f32, Ix5>, noise_level:f32) -> Array<f32, Ix4>{
     let block1 = models.get_mut(&("block1".to_string())).unwrap();
     let noise_arr : Array<f32, Ix4> = Array::ones((1,3,1000,1000)).mul(noise_level);
