@@ -19,7 +19,7 @@ use onnxruntime::{
 
 
 fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<'_>>, image_path: Vec<String>) -> Result<(),()>{
-    let noise_level = 0.1_f32;
+    let noise_level = 0.5_f32;
     let size_h:usize = 1024;
     let size_w:usize = 1024;
 
@@ -72,7 +72,9 @@ fn process_image_all(models: &mut HashMap<String, onnxruntime::session::Session<
     }
 
     //denoise after pixelize
-    let pixelized_denoised_all = denoise::denoise_256(models, pixelized_all, noise_level);
+    //Does not work well
+    // let pixelized_denoised_all = denoise::denoise_256(models, pixelized_all, noise_level);
+    let pixelized_denoised_all = pixelized_all;
 
     for (filename, data_arr, (img_h, img_w)) in pixelized_denoised_all.iter(){
         //resize
