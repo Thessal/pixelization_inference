@@ -1,0 +1,3 @@
+[submodule "FastDVDNet"]
+	path = FastDVDNet
+	url = https://github.com/z-bingo/FastDVDNet

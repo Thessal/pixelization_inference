@@ -225,7 +225,6 @@ fn arr_to_image(arr: Array<f32, Ix4>, h:u32, w:u32) -> RgbImage{
 }
 
 enum Media{
-    //Frame(image::DynamicImage),
     Frame((image::DynamicImage,(u8, u8, u8))),
     Frames((Vec<(image::DynamicImage, image::Delay)>,(u16, u16, u16))),
 }
